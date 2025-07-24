@@ -1,3 +1,6 @@
+'use client';
+
+import { useState, useEffect } from 'react';
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
@@ -14,51 +17,19 @@ import {
   AlertCircle,
   ArrowLeft,
   Share2,
-  Heart
+  Heart,
+  Loader2
 } from 'lucide-react';
-import eventsData from '@/data/events.json';
-import ongsData from '@/data/ongs.json';
 import { EventRegistrationButton } from '@/components/events/EventRegistrationButton';
 import { EventEvaluations } from '@/components/events/EventEvaluations';
 import { EventEvaluationForm } from '@/components/events/EventEvaluationForm';
-
-export async function generateStaticParams() {
-  return eventsData.map((event) => ({
-    id: event.id.toString(),
-  }));
-}
+import { Event, ONG } from '@/types';
+import { api } from '@/services/api';
 
 interface EventDetailPageProps {
   params: {
     id: string;
   };
-}
-
-interface EventData {
-  id: string;
-  ongId: string;
-  title: string;
-  description: string;
-  category: string;
-  startDate: string;
-  endDate: string;
-  location: string;
-  address: string;
-  city: string;
-  maxParticipants: number;
-  currentParticipants: number;
-  requirements?: string[];
-  image?: string;
-  status: string;
-  createdBy: string;
-  createdAt: string;
-  participantIds: string[];
-}
-
-interface ProcessedEvent extends Omit<EventData, 'startDate' | 'endDate' | 'createdAt'> {
-  startDate: Date;
-  endDate: Date;
-  createdAt: Date;
 }
 
 const CATEGORY_COLORS = {
@@ -78,21 +49,64 @@ const CATEGORY_LABELS = {
 } as const;
 
 export default function EventDetailPage({ params }: EventDetailPageProps) {
-  const eventData = eventsData.find(e => e.id === params.id) as EventData | undefined;
-  
-  if (!eventData) {
-    notFound();
+  const [event, setEvent] = useState<Event | null>(null);
+  const [ong, setOng] = useState<ONG | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        
+        // Fetch event details
+        const eventData = await api.events.getById(params.id);
+        
+        // Convert date strings to Date objects
+        const processedEvent: Event = {
+          ...eventData,
+          startDate: new Date(eventData.startDate),
+          endDate: new Date(eventData.endDate),
+          createdAt: new Date(eventData.createdAt)
+        };
+        
+        setEvent(processedEvent);
+
+        // Fetch ONG details if ongId exists
+        if (eventData.ongId) {
+          try {
+            const ongData = await api.ongs.getById(eventData.ongId);
+            setOng(ongData);
+          } catch (ongError) {
+            console.error('Error fetching ONG data:', ongError);
+            // Continue without ONG data
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching event data:', err);
+        setError(err instanceof Error ? err.message : 'Une erreur est survenue');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [params.id]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="flex items-center space-x-2">
+          <Loader2 className="h-6 w-6 animate-spin" />
+          <span>Chargement...</span>
+        </div>
+      </div>
+    );
   }
 
-  // Convert date strings to Date objects
-  const event: ProcessedEvent = {
-    ...eventData,
-    startDate: new Date(eventData.startDate),
-    endDate: new Date(eventData.endDate),
-    createdAt: new Date(eventData.createdAt)
-  };
-
-  const ong = ongsData.find(o => o.id === event.ongId);
+  if (error || !event) {
+    notFound();
+  }
   
   const formatDate = (date: Date): string => {
     return new Intl.DateTimeFormat('fr-FR', {

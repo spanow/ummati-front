@@ -21,7 +21,8 @@ import {
   Star,
   UserPlus,
   Download,
-  MoreVertical
+  MoreVertical,
+  Loader2
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -30,7 +31,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Volunteer } from '@/types';
-import usersData from '@/data/users.json';
+import { api } from '@/services/api';
 
 export default function AdminVolunteersPage() {
   const { user, isAuthenticated } = useAuth();
@@ -38,6 +39,7 @@ export default function AdminVolunteersPage() {
   const [volunteers, setVolunteers] = useState<Volunteer[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== 'ong_admin') {
@@ -45,14 +47,19 @@ export default function AdminVolunteersPage() {
       return;
     }
 
-    // Simulate loading volunteers data
     const loadVolunteers = async () => {
       try {
+        setLoading(true);
+        
+        // Fetch all users from API
+        const allUsers = await api.users.getAll();
+        
         // Filter volunteers from users data
-        const volunteerUsers = usersData.filter(u => u.role === 'volunteer') as Volunteer[];
+        const volunteerUsers = allUsers.filter(u => u.role === 'volunteer') as Volunteer[];
         setVolunteers(volunteerUsers);
-      } catch (error) {
-        console.error('Erreur lors du chargement des bénévoles:', error);
+      } catch (err) {
+        console.error('Erreur lors du chargement des bénévoles:', err);
+        setError(err instanceof Error ? err.message : 'Une erreur est survenue');
       } finally {
         setLoading(false);
       }
@@ -81,6 +88,30 @@ export default function AdminVolunteersPage() {
 
   if (!isAuthenticated || user?.role !== 'ong_admin') {
     return null;
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="flex items-center space-x-2">
+          <Loader2 className="h-6 w-6 animate-spin" />
+          <span>Chargement...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-600 mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()}>
+            Réessayer
+          </Button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -198,15 +229,7 @@ export default function AdminVolunteersPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {loading ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="animate-pulse">
-                    <div className="h-16 bg-gray-200 rounded"></div>
-                  </div>
-                ))}
-              </div>
-            ) : filteredVolunteers.length > 0 ? (
+            {filteredVolunteers.length > 0 ? (
               <div className="space-y-4">
                 {filteredVolunteers.map((volunteer) => (
                   <div key={volunteer.id} className="border rounded-lg p-4 hover:bg-gray-50 transition-colors">

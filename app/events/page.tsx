@@ -14,6 +14,7 @@ import { Calendar, Filter } from 'lucide-react';
 export default function EventsPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>({ page: 1, limit: 12 });
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -31,12 +32,59 @@ export default function EventsPage() {
   const fetchEvents = async () => {
     try {
       setLoading(true);
+      setError(null);
+      
       const response = await api.events.getAll(debouncedFilters);
-      setEvents(response.data);
-      setTotalPages(response.totalPages);
-      setTotal(response.total);
+      
+      // Vérifications de sécurité
+      if (response && typeof response === 'object') {
+        // Si la réponse a une structure paginée
+        if ('data' in response && Array.isArray(response.data)) {
+          // Convertir les dates string en objets Date
+          const processedEvents = response.data.map(event => ({
+            ...event,
+            startDate: new Date(event.startDate),
+            endDate: new Date(event.endDate),
+            createdAt: new Date(event.createdAt),
+          }));
+          
+          setEvents(processedEvents || []);
+          setTotalPages(response.totalPages || 1);
+          setTotal(response.total || 0);
+        } 
+        // Si la réponse est directement un array (fallback pour compatibilité)
+        else if (Array.isArray(response)) {
+          // Convertir les dates string en objets Date
+          const processedEvents = response.map(event => ({
+            ...event,
+            startDate: new Date(event.startDate),
+            endDate: new Date(event.endDate),
+            createdAt: new Date(event.createdAt),
+          }));
+          
+          setEvents(processedEvents);
+          setTotalPages(1);
+          setTotal(processedEvents.length);
+        }
+        // Sinon, structure inattendue
+        else {
+          console.warn('Structure de réponse inattendue:', response);
+          setEvents([]);
+          setTotalPages(1);
+          setTotal(0);
+        }
+      } else {
+        console.warn('Réponse invalide:', response);
+        setEvents([]);
+        setTotalPages(1);
+        setTotal(0);
+      }
     } catch (error) {
       console.error('Erreur lors du chargement des événements:', error);
+      setError(error instanceof Error ? error.message : 'Une erreur est survenue');
+      setEvents([]);
+      setTotalPages(1);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
@@ -55,6 +103,25 @@ export default function EventsPage() {
   };
 
   const hasActiveFilters = filters.search || filters.category || filters.city;
+
+  // Si erreur, afficher un message d'erreur
+  if (error && !loading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold text-gray-900 mb-4">
+              Erreur de chargement
+            </h1>
+            <p className="text-gray-600 mb-4">{error}</p>
+            <Button onClick={fetchEvents}>
+              Réessayer
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -109,7 +176,7 @@ export default function EventsPage() {
           <div className="flex justify-center py-12">
             <Loading size="lg" text="Chargement des événements..." />
           </div>
-        ) : events.length > 0 ? (
+        ) : (events && events.length > 0) ? (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
               {events.map((event) => (

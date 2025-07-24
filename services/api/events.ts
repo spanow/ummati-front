@@ -1,15 +1,8 @@
 import { Event, Filters } from '@/types';
 import { delay, ApiError, PaginatedResponse } from './base';
 import { PAGINATION_DEFAULTS } from '@/lib/constants';
-import eventsData from '@/data/events.json';
 
-// Mock events database
-const events: Event[] = eventsData.map(event => ({
-  ...event,
-  startDate: new Date(event.startDate),
-  endDate: new Date(event.endDate),
-  createdAt: new Date(event.createdAt),
-})) as Event[];
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 export interface CreateEventData {
   ongId: string;
@@ -28,148 +21,104 @@ export interface CreateEventData {
   createdBy: string;
 }
 
+async function apiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const url = `${API_BASE_URL}${endpoint}`;
+  
+  const response = await fetch(url, {
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+    ...options,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ message: 'Une erreur est survenue' }));
+    throw new ApiError(
+      errorData.message || 'Une erreur est survenue',
+      response.status,
+      errorData.code || 'API_ERROR'
+    );
+  }
+
+  return response.json();
+}
+
+function buildQueryParams(filters?: Filters): string {
+  if (!filters) return '';
+  
+  const params = new URLSearchParams();
+  
+  if (filters.search) params.append('search', filters.search);
+  if (filters.category) params.append('category', filters.category);
+  if (filters.city) params.append('city', filters.city);
+  if (filters.status) params.append('status', filters.status);
+  if (filters.page) params.append('page', filters.page.toString());
+  if (filters.limit) params.append('limit', filters.limit.toString());
+  
+  return params.toString() ? `?${params.toString()}` : '';
+}
+
 export const eventsApi = {
   async getAll(filters?: Filters): Promise<PaginatedResponse<Event>> {
-    await delay(400);
-    
-    let filteredEvents = [...events];
-
-    // Apply filters
-    if (filters?.search) {
-      const searchTerm = filters.search.toLowerCase();
-      filteredEvents = filteredEvents.filter(event =>
-        event.title.toLowerCase().includes(searchTerm) ||
-        event.description.toLowerCase().includes(searchTerm)
-      );
-    }
-
-    if (filters?.category) {
-      filteredEvents = filteredEvents.filter(event => event.category === filters.category);
-    }
-
-    if (filters?.city) {
-      const cityTerm = filters.city.toLowerCase();
-      filteredEvents = filteredEvents.filter(event =>
-        event.city.toLowerCase().includes(cityTerm)
-      );
-    }
-
-    if (filters?.status) {
-      filteredEvents = filteredEvents.filter(event => event.status === filters.status);
-    }
-
-    // Sort by start date
-    filteredEvents.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
-
-    // Apply pagination
-    const page = filters?.page || PAGINATION_DEFAULTS.PAGE;
-    const limit = Math.min(filters?.limit || PAGINATION_DEFAULTS.LIMIT, PAGINATION_DEFAULTS.MAX_LIMIT);
-    const startIndex = (page - 1) * limit;
-    const endIndex = startIndex + limit;
-
-    return {
-      data: filteredEvents.slice(startIndex, endIndex),
-      total: filteredEvents.length,
-      page,
-      limit,
-      totalPages: Math.ceil(filteredEvents.length / limit),
-    };
+    const queryParams = buildQueryParams(filters);
+    return apiRequest<PaginatedResponse<Event>>(`/api/events${queryParams}`);
   },
 
   async getById(id: string): Promise<Event> {
-    await delay(300);
-    
-    const event = events.find(e => e.id === id);
-    if (!event) {
-      throw new ApiError('Événement non trouvé', 404, 'EVENT_NOT_FOUND');
-    }
-    
-    return event;
+    return apiRequest<Event>(`/api/events/${id}`);
+  },
+
+  async getUpcoming(): Promise<Event[]> {
+    return apiRequest<Event[]>('/api/events/upcoming');
   },
 
   async create(data: CreateEventData): Promise<Event> {
-    await delay(800);
-    
-    const newEvent: Event = {
-      ...data,
-      id: (events.length + 1).toString(),
-      currentParticipants: 0,
-      participantIds: [],
-      createdAt: new Date(),
-    };
-
-    events.push(newEvent);
-    return newEvent;
+    return apiRequest<Event>('/api/events', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...data,
+        startDate: data.startDate.toISOString(),
+        endDate: data.endDate.toISOString(),
+      }),
+    });
   },
 
   async update(id: string, data: Partial<Event>): Promise<Event> {
-    await delay(600);
+    const updateData = { ...data };
     
-    const eventIndex = events.findIndex(e => e.id === id);
-    if (eventIndex === -1) {
-      throw new ApiError('Événement non trouvé', 404, 'EVENT_NOT_FOUND');
+    // Convert dates to ISO strings if present
+    if (updateData.startDate) {
+      updateData.startDate = updateData.startDate.toISOString() as any;
     }
-
-    events[eventIndex] = {
-      ...events[eventIndex],
-      ...data,
-    };
-
-    return events[eventIndex];
+    if (updateData.endDate) {
+      updateData.endDate = updateData.endDate.toISOString() as any;
+    }
+    
+    return apiRequest<Event>(`/api/events/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(updateData),
+    });
   },
 
   async delete(id: string): Promise<void> {
-    await delay(400);
-    
-    const eventIndex = events.findIndex(e => e.id === id);
-    if (eventIndex === -1) {
-      throw new ApiError('Événement non trouvé', 404, 'EVENT_NOT_FOUND');
-    }
-
-    events.splice(eventIndex, 1);
+    await apiRequest<void>(`/api/events/${id}`, {
+      method: 'DELETE',
+    });
   },
 
   async register(eventId: string, userId: string): Promise<Event> {
-    await delay(600);
-    
-    const eventIndex = events.findIndex(e => e.id === eventId);
-    if (eventIndex === -1) {
-      throw new ApiError('Événement non trouvé', 404, 'EVENT_NOT_FOUND');
-    }
-
-    const event = events[eventIndex];
-    
-    if (event.currentParticipants >= event.maxParticipants) {
-      throw new ApiError('Événement complet', 400, 'EVENT_FULL');
-    }
-
-    if (event.participantIds.includes(userId)) {
-      throw new ApiError('Déjà inscrit à cet événement', 400, 'ALREADY_REGISTERED');
-    }
-
-    event.participantIds.push(userId);
-    event.currentParticipants += 1;
-
-    return event;
+    return apiRequest<Event>(`/api/events/${eventId}/register/${userId}`, {
+      method: 'POST',
+    });
   },
 
   async unregister(eventId: string, userId: string): Promise<Event> {
-    await delay(400);
+    await apiRequest<void>(`/api/events/${eventId}/unregister/${userId}`, {
+      method: 'DELETE',
+    });
     
-    const eventIndex = events.findIndex(e => e.id === eventId);
-    if (eventIndex === -1) {
-      throw new ApiError('Événement non trouvé', 404, 'EVENT_NOT_FOUND');
-    }
-
-    const event = events[eventIndex];
-    
-    if (!event.participantIds.includes(userId)) {
-      throw new ApiError('Non inscrit à cet événement', 400, 'NOT_REGISTERED');
-    }
-
-    event.participantIds = event.participantIds.filter(id => id !== userId);
-    event.currentParticipants -= 1;
-
-    return event;
+    // Return updated event
+    return this.getById(eventId);
   },
 };

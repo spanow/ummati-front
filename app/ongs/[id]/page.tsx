@@ -1,3 +1,6 @@
+'use client';
+
+import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -15,17 +18,22 @@ import {
   Clock,
   ExternalLink,
   Heart,
-  ArrowLeft
+  ArrowLeft,
+  Loader2
 } from 'lucide-react';
-import ongsData from '@/data/ongs.json';
-import eventsData from '@/data/events.json';
 import { ONG, Event } from '@/types';
+import { api } from '@/services/api';
 
 // Generate static params for all ONGs
 export async function generateStaticParams() {
-  return ongsData.map((ong) => ({
-    id: ong.id.toString(),
-  }));
+  try {
+    // In a static build, we might not have access to the API
+    // Return an empty array and let the page be generated on-demand
+    return [];
+  } catch (error) {
+    console.error('Error generating static params:', error);
+    return [];
+  }
 }
 
 interface OngDetailPageProps {
@@ -35,21 +43,61 @@ interface OngDetailPageProps {
 }
 
 export default function OngDetailPage({ params }: OngDetailPageProps) {
-  const ong = ongsData.find(o => o.id === params.id) as ONG | undefined;
-  
-  if (!ong) {
-    notFound();
+  const [ong, setOng] = useState<ONG | null>(null);
+  const [ongEvents, setOngEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        
+        // Fetch ONG details
+        const ongData = await api.ongs.getById(params.id);
+        setOng(ongData);
+
+        // Fetch events for this ONG
+        const eventsResponse = await api.events.getAll({ 
+          limit: 100, // Get all events to filter by ongId
+        });
+        
+        // Filter events by ongId (since API might not support this filter yet)
+        const filteredEvents = eventsResponse.data
+          .filter(event => event.ongId === params.id)
+          .map(event => ({
+            ...event,
+            startDate: new Date(event.startDate),
+            endDate: new Date(event.endDate),
+            createdAt: new Date(event.createdAt),
+          })) as Event[];
+        
+        setOngEvents(filteredEvents);
+      } catch (err) {
+        console.error('Error fetching ONG data:', err);
+        setError(err instanceof Error ? err.message : 'Une erreur est survenue');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [params.id]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="flex items-center space-x-2">
+          <Loader2 className="h-6 w-6 animate-spin" />
+          <span>Chargement...</span>
+        </div>
+      </div>
+    );
   }
 
-  // Get events for this ONG
-  const ongEvents = eventsData
-    .filter(event => event.ongId === ong.id)
-    .map(event => ({
-      ...event,
-      startDate: new Date(event.startDate),
-      endDate: new Date(event.endDate),
-      createdAt: new Date(event.createdAt),
-    })) as Event[];
+  if (error || !ong) {
+    notFound();
+  }
 
   const getCategoryColor = (category: string) => {
     const colors = {
@@ -255,7 +303,7 @@ export default function OngDetailPage({ params }: OngDetailPageProps) {
                     <Users className="h-4 w-4 text-gray-500" />
                     <span className="text-sm text-gray-600">Bénévoles</span>
                   </div>
-                  <span className="font-semibold">{ong.stats.totalVolunteers.toLocaleString()}</span>
+                  <span className="font-semibold">{ong.stats?.totalVolunteers?.toLocaleString() || 0}</span>
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between">
@@ -263,7 +311,7 @@ export default function OngDetailPage({ params }: OngDetailPageProps) {
                     <Calendar className="h-4 w-4 text-gray-500" />
                     <span className="text-sm text-gray-600">Événements</span>
                   </div>
-                  <span className="font-semibold">{ong.stats.totalEvents}</span>
+                  <span className="font-semibold">{ong.stats?.totalEvents || 0}</span>
                 </div>
                 <Separator />
                 <div className="flex items-center justify-between">
@@ -271,7 +319,7 @@ export default function OngDetailPage({ params }: OngDetailPageProps) {
                     <Clock className="h-4 w-4 text-gray-500" />
                     <span className="text-sm text-gray-600">Heures de bénévolat</span>
                   </div>
-                  <span className="font-semibold">{ong.stats.totalHours.toLocaleString()}h</span>
+                  <span className="font-semibold">{ong.stats?.totalHours?.toLocaleString() || 0}h</span>
                 </div>
               </CardContent>
             </Card>

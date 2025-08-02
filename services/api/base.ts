@@ -98,7 +98,6 @@ export class HttpClient {
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.log('Backend error data:', errorData); // Pour debug
         
         let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
         

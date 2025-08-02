@@ -105,10 +105,7 @@ export default function SettingsPage() {
       return;
     }
 
-    if (passwordData.newPassword.length < 6) {
-      toast.error('Le mot de passe doit contenir au moins 6 caractères');
-      return;
-    }
+  
 
     setIsLoading(true);
 

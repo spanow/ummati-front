@@ -86,7 +86,6 @@ export class HttpClient {
 
     if (token) {
       headers.Authorization = `Bearer ${token}`;
-      console.log(token);
     }
 
     const config: RequestInit = {
@@ -99,11 +98,25 @@ export class HttpClient {
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new ApiError(
-          errorData.message || `HTTP ${response.status}: ${response.statusText}`,
-          response.status,
-          errorData.code
-        );
+        console.log('Backend error data:', errorData); // Pour debug
+        
+        let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+        
+        // Cas 1: erreur simple avec "error"
+        if (errorData.error) {
+          errorMessage = errorData.error;
+        }
+        // Cas 2: erreur simple avec "message"  
+        else if (errorData.message && !errorData.data) {
+          errorMessage = errorData.message;
+        }
+        // Cas 3: erreurs de validation avec "data"
+        else if (errorData.data && typeof errorData.data === 'object') {
+          const firstError = Object.values(errorData.data)[0];
+          errorMessage = firstError as string;
+        }
+        
+        throw new ApiError(errorMessage, response.status, errorData.code);
       }
 
       const data = await response.json();

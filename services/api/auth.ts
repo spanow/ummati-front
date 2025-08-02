@@ -39,7 +39,6 @@ export const authApi = {
     try {
       const response = await httpClient.post<User>('/api/users', data);
       
-      // Auto-login after registration
       return this.login({
         email: data.email,
         password: data.password,
@@ -48,6 +47,7 @@ export const authApi = {
       if (error instanceof ApiError) {
         throw error;
       }
+      
       throw new ApiError('Erreur lors de l\'inscription', 500, 'REGISTER_ERROR');
     }
   },

@@ -46,14 +46,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
   useEffect(() => {
-    const initializeAuth = () => {
+    const initializeAuth = async () => {
       try {
         const token = localStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
         const userStr = localStorage.getItem(STORAGE_KEYS.AUTH_USER);
-        
+  
         if (token && userStr) {
-          const user = JSON.parse(userStr);
-          dispatch({ type: 'SET_USER', payload: user });
+          // Vérification côté backend
+          try {
+            const me = await api.auth.getProfile(); // GET /api/users/me
+            dispatch({ type: 'SET_USER', payload: me });
+          } catch (err: any) {
+            // Token expiré/invalide → logout
+            console.warn("Token invalid or expired:", err);
+            localStorage.removeItem(STORAGE_KEYS.AUTH_TOKEN);
+            localStorage.removeItem(STORAGE_KEYS.AUTH_USER);
+            dispatch({ type: 'LOGOUT' });
+          }
         } else {
           dispatch({ type: 'SET_LOADING', payload: false });
         }
@@ -64,10 +73,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         dispatch({ type: 'SET_LOADING', payload: false });
       }
     };
-
+  
     initializeAuth();
   }, []);
-
+  
   const login = async (email: string, password: string) => {
     dispatch({ type: 'SET_LOADING', payload: true });
     try {

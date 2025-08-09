@@ -98,7 +98,18 @@ export const authApi = {
       throw new ApiError('Erreur lors de la récupération de l\'utilisateur', 500, 'USER_ERROR');
     }
   },
-
+  async getProfile(): Promise<User> {
+    try {
+      const response = await httpClient.get<User>('/api/users/me');
+      return response;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new ApiError('Erreur lors de la récupération du profil', 500, 'PROFILE_ERROR');
+    }
+  },
+  
   async getAllUsers(): Promise<User[]> {
     try {
       const response = await httpClient.get<User[]>('/api/users');

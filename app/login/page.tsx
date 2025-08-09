@@ -169,7 +169,7 @@ export default function LoginPage() {
           </CardHeader>
           <CardContent className="text-xs text-emerald-700 space-y-2">
             <div>
-              <strong>Bénévole :</strong> marie.volunteer@example.com / password123
+              <strong>Admin ONG :</strong> admin@example.com / password123
             </div>
             <div>
               <strong>Admin ONG :</strong> ong.admin@croixrouge.fr / password123

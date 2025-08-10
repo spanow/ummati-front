@@ -52,18 +52,21 @@ export const authApi = {
     }
   },
 
-  async updateProfile(userId: string, data: Partial<User>): Promise<User> {
-    try {
-      const response = await httpClient.put<User>(`/api/users/${userId}`, data);
-      return response;
-    } catch (error) {
-      if (error instanceof ApiError) {
-        throw error;
-      }
-      throw new ApiError('Erreur lors de la mise à jour du profil', 500, 'UPDATE_ERROR');
-    }
+  async updateProfile(userId: string, data: Partial<User>) {
+    const body = {
+      firstName: data.firstName,
+      lastName: data.lastName,
+      phone: data.phone,
+      bio: (data as any).bio,
+      location: (data as any).location,
+      wilayaId: (data as any).wilayaId,
+      cityId: (data as any).cityId,
+      avatar: data.avatar,
+      skills: (data as any).skills,
+    };
+    return httpClient.put(`/api/users/${userId}/profile`, body);
   },
-
+  
   async changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
     try {
       await httpClient.post(`/api/users/${userId}/change-password`, {

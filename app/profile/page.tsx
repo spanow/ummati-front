@@ -12,7 +12,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Separator } from '@/components/ui/separator';
 import { 
   User, 
   Calendar, 
@@ -20,7 +19,6 @@ import {
   Star,
   MapPin,
   Clock,
-  Users,
   Plus,
   X,
   Edit,
@@ -35,6 +33,16 @@ import { useRouter } from 'next/navigation';
 import { getInitials } from '@/lib/utils/format';
 import { formatDate } from '@/lib/utils/date';
 import { getEventCategoryColor, getEventCategoryLabel } from '@/lib/utils/category';
+
+/** Debounce hook pour éviter de spam l’API pendant la saisie */
+function useDebounce<T>(value: T, delay = 250) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
 
 interface Participation {
   id: string;
@@ -90,7 +98,19 @@ export default function ProfilePage() {
     location: '',
     skills: [] as string[],
     avatar: '',
+    /** optionnel mais pratique pour sauvegarder côté back */
+    wilayaId: undefined as number | undefined,
+    cityId: undefined as number | undefined,
   });
+
+  /** --- Autocomplete Localisation (backend) --- */
+  const [wilayas, setWilayas] = useState<{id:number; name:string}[]>([]);
+  const [selectedWilayaId, setSelectedWilayaId] = useState<number | ''>('');
+  const [locQuery, setLocQuery] = useState('');
+  const debouncedLocQuery = useDebounce(locQuery, 250);
+  const [citySuggestions, setCitySuggestions] = useState<
+    { id:number; name:string; wilayaId:number; wilayaName:string }[]
+  >([]);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -99,7 +119,8 @@ export default function ProfilePage() {
     }
 
     if (user) {
-      setProfileData({
+      setProfileData(prev => ({
+        ...prev,
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
@@ -108,17 +129,43 @@ export default function ProfilePage() {
         location: (user as any).location || '',
         skills: (user as any).skills || [],
         avatar: user.avatar || '',
-      });
+        wilayaId: (user as any).wilayaId,   // si tu les enregistres côté back
+        cityId: (user as any).cityId,
+      }));
     }
 
-    // Load participations
+    // Load participations & evaluations (mock)
     loadParticipations();
     loadEvaluations();
   }, [isAuthenticated, user, router]);
 
+  // Charger la liste des wilayas au montage
+  useEffect(() => {
+    fetch('http://localhost:8080/api/locations/wilayas')
+      .then(r => r.json())
+      .then(setWilayas)
+      .catch(console.error);
+  }, []);
+
+  // Rechercher des villes au fil de la frappe (avec filtre wilaya optionnel)
+  useEffect(() => {
+    if (!debouncedLocQuery || debouncedLocQuery.length < 2) {
+      setCitySuggestions([]);
+      return;
+    }
+    const controller = new AbortController();
+    const params = new URLSearchParams({ q: debouncedLocQuery });
+    if (selectedWilayaId) params.set('wilayaId', String(selectedWilayaId));
+    fetch(`http://localhost:8080/api/locations/cities/search?${params.toString()}`, { signal: controller.signal })
+      .then(r => r.json())
+      .then(setCitySuggestions)
+      .catch(e => { if (e.name !== 'AbortError') console.error(e); });
+    return () => controller.abort();
+  }, [debouncedLocQuery, selectedWilayaId]);
+
   const loadParticipations = async () => {
     try {
-      // Mock data - in real app, fetch from API
+      // Mock
       const mockParticipations: Participation[] = [
         {
           id: '1',
@@ -138,15 +185,15 @@ export default function ProfilePage() {
         {
           id: '2',
           eventId: '2',
-          eventTitle: 'Collecte de vêtements d\'hiver',
+          eventTitle: "Collecte de vêtements d'hiver",
           eventCategory: 'collecte',
           eventDate: new Date('2024-02-20'),
-          eventLocation: 'Entrepôt Croix-Rouge',
+          eventLocation: "Entrepôt Croix-Rouge",
           eventCity: 'Paris',
           status: 'attended',
           hoursContributed: 8,
           rating: 4,
-          feedback: 'Bonne organisation, travail d\'équipe efficace.',
+          feedback: "Bonne organisation, travail d'équipe efficace.",
           organizerRating: 5,
           organizerFeedback: 'Excellent bénévole, très motivé !',
         },
@@ -172,7 +219,7 @@ export default function ProfilePage() {
 
   const loadEvaluations = async () => {
     try {
-      // Mock data - in real app, fetch from API
+      // Mock
       const mockEvaluations: Evaluation[] = [
         {
           id: '1',
@@ -181,7 +228,7 @@ export default function ProfilePage() {
           participantId: '2',
           participantName: 'Marie Dupont',
           rating: 5,
-          comment: 'Formation excellente ! Les formateurs étaient très pédagogues et les exercices pratiques vraiment utiles. Je recommande vivement cette formation à tous les bénévoles.',
+          comment: 'Formation excellente ! Les formateurs étaient très pédagogues et les exercices pratiques vraiment utiles.',
           createdAt: new Date('2024-02-16'),
           isPublic: true,
           likes: 12,
@@ -191,11 +238,11 @@ export default function ProfilePage() {
         {
           id: '2',
           eventId: '2',
-          eventTitle: 'Collecte de vêtements d\'hiver',
+          eventTitle: "Collecte de vêtements d'hiver",
           participantId: '4',
           participantName: 'Pierre Durand',
           rating: 4,
-          comment: 'Très bonne organisation de la collecte. L\'équipe était motivée et l\'ambiance excellente. Seul petit bémol : manque de matériel de tri au début.',
+          comment: "Très bonne organisation de la collecte. L'équipe était motivée et l'ambiance excellente.",
           createdAt: new Date('2024-02-22'),
           isPublic: true,
           likes: 8,
@@ -208,7 +255,7 @@ export default function ProfilePage() {
           participantId: '5',
           participantName: 'Sophie Martin',
           rating: 5,
-          comment: 'Une formation indispensable ! J\'ai appris énormément de choses et je me sens maintenant capable d\'agir en cas d\'urgence. Merci aux organisateurs !',
+          comment: "Une formation indispensable ! J'ai appris énormément de choses.",
           createdAt: new Date('2024-02-17'),
           isPublic: true,
           likes: 15,
@@ -227,8 +274,8 @@ export default function ProfilePage() {
     return null;
   }
 
-  const handleInputChange = (field: string, value: string) => {
-    setProfileData(prev => ({ ...prev, [field]: value }));
+  const handleInputChange = (field: string, value: string | number | undefined) => {
+    setProfileData(prev => ({ ...prev, [field]: value as any }));
   };
 
   const addSkill = () => {
@@ -251,7 +298,7 @@ export default function ProfilePage() {
   const handleSave = async () => {
     setIsLoading(true);
     try {
-      await updateProfile(profileData);
+      await updateProfile(profileData as any); // inclut wilayaId/cityId éventuellement
       setIsEditing(false);
       toast.success('Profil mis à jour avec succès');
     } catch (error) {
@@ -297,11 +344,9 @@ export default function ProfilePage() {
         let newDislikes = evaluation.dislikes;
         let newReaction: 'like' | 'dislike' | undefined = reaction;
 
-        // Remove previous reaction
         if (currentReaction === 'like') newLikes--;
         if (currentReaction === 'dislike') newDislikes--;
 
-        // Add new reaction or remove if same
         if (currentReaction === reaction) {
           newReaction = undefined;
         } else {
@@ -491,17 +536,60 @@ export default function ProfilePage() {
                   />
                 </div>
 
-                <div className="space-y-2">
+                {/* -------- Localisation avec autocomplete (wilaya + ville) -------- */}
+                <div className="space-y-2 relative">
                   <Label htmlFor="location">Localisation</Label>
+
+                  {/* Filtre wilaya (optionnel) */}
+                  <select
+                    className="w-full border p-2 rounded mb-2"
+                    disabled={!isEditing}
+                    value={selectedWilayaId}
+                    onChange={(e) => setSelectedWilayaId(e.target.value ? Number(e.target.value) : '')}
+                  >
+                    <option value="">— Toutes les wilayas —</option>
+                    {wilayas.map(w => (
+                      <option key={w.id} value={w.id}>{w.name}</option>
+                    ))}
+                  </select>
+
+                  {/* Champ ville avec suggestions */}
                   <Input
                     id="location"
                     value={profileData.location}
-                    onChange={(e) => handleInputChange('location', e.target.value)}
+                    onChange={(e) => {
+                      handleInputChange('location', e.target.value);
+                      setLocQuery(e.target.value);
+                    }}
                     disabled={!isEditing}
-                    placeholder="Ville, Pays"
+                    placeholder="Tape une ville…"
                     dir={isRTL ? 'rtl' : 'ltr'}
+                    autoComplete="off"
                   />
+
+                  {isEditing && citySuggestions.length > 0 && (
+                    <ul className="absolute z-20 bg-white border rounded shadow w-full max-h-64 overflow-y-auto mt-1">
+                      {citySuggestions.map(s => (
+                        <li
+                          key={s.id}
+                          className="p-2 hover:bg-gray-100 cursor-pointer"
+                          onClick={() => {
+                            // hydrate l’affichage + stocke les IDs
+                            handleInputChange('location', `${s.wilayaName}, ${s.name}`);
+                            handleInputChange('wilayaId', s.wilayaId);
+                            handleInputChange('cityId', s.id);
+                            setLocQuery(s.name);
+                            setCitySuggestions([]);
+                            setSelectedWilayaId(s.wilayaId);
+                          }}
+                        >
+                          {s.wilayaName}, {s.name}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
+                {/* ---------------------------------------------------------------- */}
 
                 <div className="space-y-2">
                   <Label htmlFor="bio">Biographie</Label>
@@ -637,7 +725,6 @@ export default function ProfilePage() {
                               )}
                             </div>
 
-                            {/* Ratings and Feedback */}
                             {participation.status === 'attended' && (
                               <div className="space-y-3 mt-4">
                                 {participation.rating && (

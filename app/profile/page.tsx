@@ -98,9 +98,8 @@ export default function ProfilePage() {
     location: '',
     skills: [] as string[],
     avatar: '',
-    /** optionnel mais pratique pour sauvegarder côté back */
-    wilayaId: undefined as number | undefined,
-    cityId: undefined as number | undefined,
+    wilayaId: null as number | null,
+    cityId: null as number | null,
   });
 
   /** --- Autocomplete Localisation (backend) --- */
@@ -119,6 +118,20 @@ export default function ProfilePage() {
     }
 
     if (user) {
+      const userWilayaId = (user as any).wilayaId || null;
+      const userCityId = (user as any).cityId || null;
+      
+      console.log('User data from backend:', user);
+      console.log('Extracted wilayaId:', userWilayaId, 'cityId:', userCityId);
+      
+      // Build location string from wilayaName and cityName if available
+      let locationDisplay = (user as any).location || '';
+      if (!locationDisplay && (user as any).wilayaName && (user as any).cityName) {
+        locationDisplay = `${(user as any).wilayaName}, ${(user as any).cityName}`;
+      } else if (!locationDisplay && (user as any).cityName) {
+        locationDisplay = (user as any).cityName;
+      }
+      
       setProfileData(prev => ({
         ...prev,
         firstName: user.firstName,
@@ -126,12 +139,17 @@ export default function ProfilePage() {
         email: user.email,
         phone: user.phone || '',
         bio: (user as any).bio || '',
-        location: (user as any).location || '',
+        location: locationDisplay,
         skills: (user as any).skills || [],
         avatar: user.avatar || '',
-        wilayaId: (user as any).wilayaId,   // si tu les enregistres côté back
-        cityId: (user as any).cityId,
+        wilayaId: userWilayaId,
+        cityId: userCityId,
       }));
+      
+      // Initialize the wilaya filter if user has a wilaya
+      if (userWilayaId) {
+        setSelectedWilayaId(userWilayaId);
+      }
     }
 
     // Load participations & evaluations (mock)
@@ -298,10 +316,30 @@ export default function ProfilePage() {
   const handleSave = async () => {
     setIsLoading(true);
     try {
-      await updateProfile(profileData as any); // inclut wilayaId/cityId éventuellement
+      const payload = {
+        firstName: profileData.firstName,
+        lastName: profileData.lastName,
+        email: profileData.email,
+        phone: profileData.phone,
+        bio: profileData.bio,
+        location: profileData.location,
+        skills: profileData.skills,
+        avatar: profileData.avatar,
+        wilayaId: profileData.wilayaId,
+        cityId: profileData.cityId,
+      };
+      
+      console.log('=== PROFILE UPDATE DEBUG ===');
+      console.log('Sending profile data:', payload);
+      console.log('wilayaId type:', typeof payload.wilayaId, 'value:', payload.wilayaId);
+      console.log('cityId type:', typeof payload.cityId, 'value:', payload.cityId);
+      console.log('===========================');
+      
+      await updateProfile(payload);
       setIsEditing(false);
       toast.success('Profil mis à jour avec succès');
     } catch (error) {
+      console.error('Profile update error:', error);
       toast.error('Erreur lors de la mise à jour du profil');
     } finally {
       setIsLoading(false);
@@ -558,8 +596,15 @@ export default function ProfilePage() {
                     id="location"
                     value={profileData.location}
                     onChange={(e) => {
-                      handleInputChange('location', e.target.value);
-                      setLocQuery(e.target.value);
+                      const newValue = e.target.value;
+                      handleInputChange('location', newValue);
+                      setLocQuery(newValue);
+                      
+                      // If user manually clears the field, reset IDs
+                      if (!newValue.trim()) {
+                        handleInputChange('wilayaId', null);
+                        handleInputChange('cityId', null);
+                      }
                     }}
                     disabled={!isEditing}
                     placeholder="Tape une ville…"
@@ -574,13 +619,20 @@ export default function ProfilePage() {
                           key={s.id}
                           className="p-2 hover:bg-gray-100 cursor-pointer"
                           onClick={() => {
-                            // hydrate l’affichage + stocke les IDs
-                            handleInputChange('location', `${s.wilayaName}, ${s.name}`);
+                            console.log('Selected city:', s);
+                            // hydrate l'affichage + stocke les IDs
+                            const locationText = `${s.wilayaName}, ${s.name}`;
+                            handleInputChange('location', locationText);
                             handleInputChange('wilayaId', s.wilayaId);
                             handleInputChange('cityId', s.id);
-                            setLocQuery(s.name);
+                            setLocQuery('');
                             setCitySuggestions([]);
                             setSelectedWilayaId(s.wilayaId);
+                            console.log('Updated profileData will include:', {
+                              location: locationText,
+                              wilayaId: s.wilayaId,
+                              cityId: s.id
+                            });
                           }}
                         >
                           {s.wilayaName}, {s.name}

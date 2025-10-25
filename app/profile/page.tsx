@@ -33,6 +33,7 @@ import { useRouter } from 'next/navigation';
 import { getInitials } from '@/lib/utils/format';
 import { formatDate } from '@/lib/utils/date';
 import { getEventCategoryColor, getEventCategoryLabel } from '@/lib/utils/category';
+import { skillsApi, Skill } from '@/services/api/skills';
 
 /** Debounce hook pour éviter de spam l’API pendant la saisie */
 function useDebounce<T>(value: T, delay = 250) {
@@ -83,7 +84,6 @@ export default function ProfilePage() {
 
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [newSkill, setNewSkill] = useState('');
   const [participations, setParticipations] = useState<Participation[]>([]);
   const [evaluations, setEvaluations] = useState<Evaluation[]>([]);
   const [loadingParticipations, setLoadingParticipations] = useState(true);
@@ -96,11 +96,19 @@ export default function ProfilePage() {
     phone: '',
     bio: '',
     location: '',
-    skills: [] as string[],
     avatar: '',
     wilayaId: null as number | null,
     cityId: null as number | null,
   });
+
+  /** --- Skills Management (backend) --- */
+  const [allSkills, setAllSkills] = useState<Skill[]>([]);
+  const [userSkills, setUserSkills] = useState<Skill[]>([]);
+  const [loadingSkills, setLoadingSkills] = useState(true);
+  const [skillQuery, setSkillQuery] = useState('');
+  const debouncedSkillQuery = useDebounce(skillQuery, 250);
+  const [skillSuggestions, setSkillSuggestions] = useState<Skill[]>([]);
+  const [showSkillDropdown, setShowSkillDropdown] = useState(false);
 
   /** --- Autocomplete Localisation (backend) --- */
   const [wilayas, setWilayas] = useState<{id:number; name:string}[]>([]);
@@ -140,7 +148,6 @@ export default function ProfilePage() {
         phone: user.phone || '',
         bio: (user as any).bio || '',
         location: locationDisplay,
-        skills: (user as any).skills || [],
         avatar: user.avatar || '',
         wilayaId: userWilayaId,
         cityId: userCityId,
@@ -150,12 +157,40 @@ export default function ProfilePage() {
       if (userWilayaId) {
         setSelectedWilayaId(userWilayaId);
       }
+
+      // Load user's skills
+      loadUserSkills(user.id);
     }
 
     // Load participations & evaluations (mock)
     loadParticipations();
     loadEvaluations();
+    // Load all available skills
+    loadAllSkills();
   }, [isAuthenticated, user, router]);
+
+  // Load all available skills
+  const loadAllSkills = async () => {
+    try {
+      const data = await skillsApi.getAll();
+      setAllSkills(data);
+    } catch (error) {
+      console.error('Error loading skills:', error);
+      toast.error('Erreur lors du chargement des compétences');
+    } finally {
+      setLoadingSkills(false);
+    }
+  };
+
+  // Load user's current skills
+  const loadUserSkills = async (userId: string) => {
+    try {
+      const data = await skillsApi.getUserSkills(userId);
+      setUserSkills(data);
+    } catch (error) {
+      console.error('Error loading user skills:', error);
+    }
+  };
 
   // Charger la liste des wilayas au montage
   useEffect(() => {
@@ -180,6 +215,29 @@ export default function ProfilePage() {
       .catch(e => { if (e.name !== 'AbortError') console.error(e); });
     return () => controller.abort();
   }, [debouncedLocQuery, selectedWilayaId]);
+
+  // Rechercher des compétences au fil de la frappe
+  useEffect(() => {
+    if (!debouncedSkillQuery || debouncedSkillQuery.length < 2) {
+      setSkillSuggestions([]);
+      return;
+    }
+    const controller = new AbortController();
+    
+    skillsApi.search(debouncedSkillQuery)
+      .then(data => {
+        // Filter out skills that are already selected
+        const filtered = data.filter((skill: Skill) => 
+          !userSkills.some(us => us.id === skill.id)
+        );
+        setSkillSuggestions(filtered);
+      })
+      .catch(e => { 
+        if (e.name !== 'AbortError') console.error(e); 
+      });
+    
+    return () => controller.abort();
+  }, [debouncedSkillQuery, userSkills]);
 
   const loadParticipations = async () => {
     try {
@@ -296,46 +354,47 @@ export default function ProfilePage() {
     setProfileData(prev => ({ ...prev, [field]: value as any }));
   };
 
-  const addSkill = () => {
-    if (newSkill.trim() && !profileData.skills.includes(newSkill.trim())) {
-      setProfileData(prev => ({
-        ...prev,
-        skills: [...prev.skills, newSkill.trim()]
-      }));
-      setNewSkill('');
+  const addSkill = (skill: Skill) => {
+    if (!userSkills.some(s => s.id === skill.id)) {
+      setUserSkills(prev => [...prev, skill]);
+      setSkillQuery('');
+      setSkillSuggestions([]);
+      setShowSkillDropdown(false);
     }
   };
 
-  const removeSkill = (skillToRemove: string) => {
-    setProfileData(prev => ({
-      ...prev,
-      skills: prev.skills.filter(skill => skill !== skillToRemove)
-    }));
+  const removeSkill = (skillId: number) => {
+    setUserSkills(prev => prev.filter(skill => skill.id !== skillId));
   };
 
   const handleSave = async () => {
     setIsLoading(true);
     try {
-      const payload = {
+      // Update profile data
+      const profilePayload = {
         firstName: profileData.firstName,
         lastName: profileData.lastName,
         email: profileData.email,
         phone: profileData.phone,
         bio: profileData.bio,
         location: profileData.location,
-        skills: profileData.skills,
         avatar: profileData.avatar,
         wilayaId: profileData.wilayaId,
         cityId: profileData.cityId,
       };
       
       console.log('=== PROFILE UPDATE DEBUG ===');
-      console.log('Sending profile data:', payload);
-      console.log('wilayaId type:', typeof payload.wilayaId, 'value:', payload.wilayaId);
-      console.log('cityId type:', typeof payload.cityId, 'value:', payload.cityId);
+      console.log('Sending profile data:', profilePayload);
+      console.log('wilayaId type:', typeof profilePayload.wilayaId, 'value:', profilePayload.wilayaId);
+      console.log('cityId type:', typeof profilePayload.cityId, 'value:', profilePayload.cityId);
       console.log('===========================');
       
-      await updateProfile(payload);
+      await updateProfile(profilePayload);
+
+      // Update skills using API service
+      const skillIds = userSkills.map(skill => skill.id);
+      await skillsApi.updateUserSkills(user.id, skillIds);
+
       setIsEditing(false);
       toast.success('Profil mis à jour avec succès');
     } catch (error) {
@@ -502,7 +561,7 @@ export default function ProfilePage() {
             <Card>
               <CardContent className="p-6 text-center">
                 <Award className="h-8 w-8 text-purple-600 mx-auto mb-2" />
-                <p className="text-2xl font-bold text-gray-900">{profileData.skills.length}</p>
+                <p className="text-2xl font-bold text-gray-900">{userSkills.length}</p>
                 <p className="text-sm text-gray-600">Compétences</p>
               </CardContent>
             </Card>
@@ -665,53 +724,111 @@ export default function ProfilePage() {
               <CardHeader>
                 <CardTitle>Mes compétences</CardTitle>
                 <CardDescription>
-                  Ajoutez vos compétences pour recevoir des recommandations personnalisées
+                  Sélectionnez vos compétences pour recevoir des recommandations personnalisées
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 {isEditing && (
-                  <div className={`flex space-x-2 ${isRTL ? 'space-x-reverse' : ''}`}>
-                    <Input
-                      value={newSkill}
-                      onChange={(e) => setNewSkill(e.target.value)}
-                      placeholder="Ajouter une compétence..."
-                      onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addSkill())}
-                      dir={isRTL ? 'rtl' : 'ltr'}
-                    />
-                    <Button onClick={addSkill} variant="outline">
-                      <Plus className="h-4 w-4" />
-                    </Button>
+                  <div className="space-y-2 relative">
+                    <Label>Ajouter des compétences</Label>
+                    <div className={`flex space-x-2 ${isRTL ? 'space-x-reverse' : ''}`}>
+                      <div className="flex-1 relative">
+                        <Input
+                          value={skillQuery}
+                          onChange={(e) => {
+                            setSkillQuery(e.target.value);
+                            setShowSkillDropdown(true);
+                          }}
+                          onFocus={() => setShowSkillDropdown(true)}
+                          placeholder="Rechercher une compétence..."
+                          dir={isRTL ? 'rtl' : 'ltr'}
+                          autoComplete="off"
+                        />
+                        
+                        {showSkillDropdown && skillSuggestions.length > 0 && (
+                          <div className="absolute z-20 bg-white border rounded shadow w-full max-h-64 overflow-y-auto mt-1">
+                            {skillSuggestions.map(skill => (
+                              <div
+                                key={skill.id}
+                                className="p-3 hover:bg-gray-100 cursor-pointer border-b last:border-b-0"
+                                onClick={() => addSkill(skill)}
+                              >
+                                <div className="font-medium">{skill.name}</div>
+                                <div className="text-xs text-gray-500">{skill.category}</div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {showSkillDropdown && skillQuery && skillQuery.length >= 2 && skillSuggestions.length === 0 && (
+                          <div className="absolute z-20 bg-white border rounded shadow w-full p-3 mt-1 text-sm text-gray-500">
+                            Aucune compétence trouvée
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Quick browse all skills */}
+                    {!skillQuery && showSkillDropdown && (
+                      <div className="absolute z-20 bg-white border rounded shadow w-full max-h-96 overflow-y-auto mt-1">
+                        <div className="p-2 bg-gray-50 sticky top-0 border-b font-medium text-sm">
+                          Toutes les compétences disponibles
+                        </div>
+                        {allSkills
+                          .filter(skill => !userSkills.some(us => us.id === skill.id))
+                          .map(skill => (
+                            <div
+                              key={skill.id}
+                              className="p-3 hover:bg-gray-100 cursor-pointer border-b last:border-b-0"
+                              onClick={() => addSkill(skill)}
+                            >
+                              <div className="font-medium">{skill.name}</div>
+                              <div className="text-xs text-gray-500">{skill.category}</div>
+                            </div>
+                          ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
                 <div className="space-y-4">
                   <Label>Compétences actuelles :</Label>
-                  {profileData.skills.length > 0 ? (
+                  {loadingSkills ? (
+                    <div className="flex items-center space-x-2 text-gray-500">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Chargement...</span>
+                    </div>
+                  ) : userSkills.length > 0 ? (
                     <div className={`flex flex-wrap gap-2 ${isRTL ? 'flex-row-reverse' : ''}`}>
-                      {profileData.skills.map((skill, index) => (
-                        <Badge key={index} variant="secondary" className="text-sm py-1 px-3">
-                          {skill}
-                          {isEditing && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="ml-2 h-4 w-4 p-0 hover:bg-transparent"
-                              onClick={() => removeSkill(skill)}
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          )}
+                      {userSkills.map((skill) => (
+                        <Badge key={skill.id} variant="secondary" className="text-sm py-2 px-3">
+                          <div className="flex items-center gap-2">
+                            <div>
+                              <div className="font-medium">{skill.name}</div>
+                              <div className="text-xs opacity-70">{skill.category}</div>
+                            </div>
+                            {isEditing && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-5 w-5 p-0 hover:bg-transparent ml-1"
+                                onClick={() => removeSkill(skill.id)}
+                              >
+                                <X className="h-3 w-3" />
+                              </Button>
+                            )}
+                          </div>
                         </Badge>
                       ))}
                     </div>
                   ) : (
                     <p className="text-gray-500 text-sm">
-                      Aucune compétence ajoutée. {isEditing && 'Commencez par en ajouter une !'}
+                      Aucune compétence ajoutée. {isEditing && 'Recherchez et sélectionnez vos compétences !'}
                     </p>
                   )}
                 </div>
 
-                {!isEditing && profileData.skills.length === 0 && (
+                {!isEditing && userSkills.length === 0 && (
                   <div className="text-center py-8">
                     <Award className="h-12 w-12 text-gray-300 mx-auto mb-4" />
                     <p className="text-gray-500 mb-4">

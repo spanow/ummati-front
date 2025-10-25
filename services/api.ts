@@ -15,3 +15,4 @@ export * from './api/base';
 export * from './api/auth';
 export * from './api/events';
 export * from './api/ongs';
+export * from './api/skills';
